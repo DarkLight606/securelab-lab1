@@ -1,0 +1,45 @@
+@baseUrl = http://localhost:5080
+### T-01 Коректне створення -> 201, response DTO без server-managed полів
+POST {{baseUrl}}/api/incidents
+Content-Type: application/json
+
+{ "title": "Втрачений службовий ноутбук", "description": "Ноутбук зник із навчальної лабораторії; потрібна перевірка доступу.", "severity": "Medium", "occurredAtUtc": "2026-09-20T08:00:00Z" }
+
+### T-02 severity "7" -> 400 (TryParse приймає, IsDefined відкидає)
+POST {{baseUrl}}/api/incidents
+Content-Type: application/json
+
+{ "title": "Тест severity 7", "description": "Опис достатньої довжини для перевірки контракту.", "severity": "7", "occurredAtUtc": "2026-09-20T08:00:00Z" }
+
+### T-02 відсутній occurredAtUtc -> 400
+POST {{baseUrl}}/api/incidents
+Content-Type: application/json
+
+{ "title": "Без часу настання", "description": "Опис достатньої довжини для перевірки контракту.", "severity": "Low" }
+
+### T-02 дата більш ніж на 5 хвилин у майбутньому -> 400
+POST {{baseUrl}}/api/incidents
+Content-Type: application/json
+
+{ "title": "Дата в майбутньому", "description": "Опис достатньої довжини для перевірки контракту.", "severity": "Low", "occurredAtUtc": "2030-01-01T00:00:00Z" }
+
+### T-09 High + опис 39 символів -> 400 з ключем description
+POST {{baseUrl}}/api/incidents
+Content-Type: application/json
+
+{ "title": "High короткий опис", "description": "Короткий опис рівня High для перевіркио", "severity": "High", "occurredAtUtc": "2026-09-20T08:00:00Z" }
+
+### T-09 High + опис 40 символів -> 201
+POST {{baseUrl}}/api/incidents
+Content-Type: application/json
+
+{ "title": "High достатній опис", "description": "Достатній опис рівня High для перевіркио", "severity": "High", "occurredAtUtc": "2026-09-20T08:00:00Z" }
+
+### T-03 Повторний активний title -> 409 (виконати двічі)
+POST {{baseUrl}}/api/incidents
+Content-Type: application/json
+
+{ "title": "Повторюваний заголовок 2-A", "description": "Опис достатньої довжини для перевірки конфлікту.", "severity": "Low", "occurredAtUtc": "2026-09-20T08:00:00Z" }
+
+### T-06 Відсутній id -> 404 Problem Details
+GET {{baseUrl}}/api/incidents/99999999-9999-9999-9999-999999999999

@@ -28,3 +28,13 @@ public sealed record IncidentCommentResponse(
 public sealed record IncidentSeveritySummaryResponse(
     string Severity,
     int Count);
+
+// Відповідь на створення інциденту (POST /api/incidents), ЛР 02.
+// Містить лише поля, які клієнту дозволено бачити: без OwnerUserId і updatedAtUtc.
+public sealed record CreatedIncidentResponse(
+    Guid Id,
+    string Title,
+    string Severity,
+    string Status,
+    DateTimeOffset OccurredAtUtc,
+    DateTimeOffset CreatedAtUtc);

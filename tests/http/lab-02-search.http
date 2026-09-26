@@ -3,3 +3,13 @@
 GET {{baseUrl}}/api/incidents/search?q=навчальн
 ### Легітимний апостроф
 GET {{baseUrl}}/api/incidents/search?q=O%27Brien
+### Нормальний пошук USB (позитивна регресія)
+GET {{baseUrl}}/api/incidents/search?q=USB
+### Контрольний read-only ввід S-01 (лише локально; після fix не змінює вибірку)
+GET {{baseUrl}}/api/incidents/search?q=zz-no-match%27%20OR%20TRUE%20--%20
+### Пошук без збігу (контроль до/після)
+GET {{baseUrl}}/api/incidents/search?q=zz-no-match
+### Буквальний метасимвол ILIKE після fix
+GET {{baseUrl}}/api/incidents/search?q=%25
+### Невідоме сортування (після fix -> 400)
+GET {{baseUrl}}/api/incidents/search?q=USB&sortBy=title
