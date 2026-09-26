@@ -38,3 +38,12 @@ public sealed record CreatedIncidentResponse(
     string Status,
     DateTimeOffset OccurredAtUtc,
     DateTimeOffset CreatedAtUtc);
+
+// Відповідь пошуку інцидентів (GET /api/incidents/search), ЛР 02.
+public sealed record SearchIncidentResponse(
+    Guid Id,
+    string Title,
+    string Description,
+    string Severity,
+    string Status,
+    DateTimeOffset CreatedAtUtc);

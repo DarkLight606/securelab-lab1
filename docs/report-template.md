@@ -87,3 +87,46 @@ Endpoint `GET /api/incidents/severity-summary` замість 501 поверта
 підсумок, а значення поза allowlist дає 400. Клієнт показує результат через
 `textContent` і має окремі стани завантаження, порожнього результату й помилки.
 Усі 13 тестів проходять, після reset сценарії відтворюються.
+
+# Звіт до лабораторної роботи № 2
+
+Виконав: Халітов Денис, група КБ-41. Повний звіт з рисунками здано окремо у .docx.
+
+## 1. Ідентифікація стану
+
+- Варіант: 2-A «Трекер інцидентів». Baseline scaffold: `lab-02-start-v1`.
+- Робоча гілка: `lab/2-input-sqli` від тегу `v0.1.0` (base commit `c059195`).
+- Vulnerable commit: `58c9e849d2b0b3fb28a9319895b98c39d9482e20` (контракт створення виправлено, пошук ще уразливий).
+- Fixed commit: цей commit гілки; його hash дає `git rev-list -n 1 v0.2.0`.
+- Фінальний тег: `v0.2.0` (annotated, на fixed commit).
+
+## 2. Перевірка (стовпець «Фактично» з реальних запусків)
+
+Значення отримано на локальному стенді після `--reset-database` (seed: Low=3, Medium=1, High=1).
+
+| ID | Сценарій | Дія | Очікувано | Фактично |
+|---|---|---|---|---|
+| T-01 | Коректне створення | POST valid DTO | 201, response DTO без зайвих полів | 201; тіло id,title,severity,status,occurredAtUtc,createdAtUtc; без ownerUserId і updatedAtUtc |
+| T-02 | Некоректний DTO | POST severity "7" | 400 problem+json | 400; `errors.severity`; тіло без SQL і stack trace |
+| T-03 | Предметний конфлікт | повторний POST того самого active title | 409 | перший 201, другий 409 problem+json |
+| T-06 | Ресурс не знайдено | GET неіснуючого id | 404 problem+json | 404; title «Інцидент не знайдено» |
+| T-09 | Cross-field 2-A | High + опис 39 і 40 символів | 39→400(description), 40→201 | 39→400 `errors.description`; 40→201 |
+| S-01 | SQLi до fix | контрольний read-only ввід | розширена вибірка | 5 із 5 записів (нормальний USB=1, zz-no-match=0); апостроф O'Brien дав 500 |
+| S-02 | Retest SQLi | той самий ввід після fix | порожня/обмежена вибірка | 0 записів; `q=%` теж 0 (буквальний метасимвол) |
+| T-04 | Позитивна регресія | USB, O'Brien, комп'ютерного | коректні записи, без 500 | USB→1, O'Brien→1, комп'ютерного→1, усі 200 |
+| T-05 | Невідоме сортування | sortBy=title | 400 з ключем sortBy | 400 problem+json `errors.sortBy` |
+| A-02 | Overposting | POST з ownerUserId=Bob, status=Closed | зайві поля ігноруються | створено з owner Alice і status New |
+
+Сортування: `sortBy=severity` → High, Medium, Low, Low, Low; `sortBy=status` → New×3, Triaged, InProgress.
+Автоматизована перевірка `bash scripts/test.sh`: Passed 34, Failed 0.
+
+## 3. Security-сценарій (8 пунктів)
+
+1. Контекст і гіпотеза. Локальний endpoint пошуку отримує недовірені q і sortBy; є ризик, що значення увійде в структуру SQL.
+2. Стан до. Vulnerable commit `58c9e849d2b0b3fb28a9319895b98c39d9482e20`; метод search у `Lab02Endpoints.cs` склеює q і sortBy у текст `FromSqlRaw`.
+3. Мінімальний PoC. Один локальний read-only контрольний ввід у `tests/http/lab-02-search.http`; руйнівних дій немає.
+4. Спостереження. Контрольний ввід повернув усі 5 записів замість 0; легітимний апостроф O'Brien дав 500 через розрив рядка.
+5. Першопричина. q і sortBy з'єднувалися зі SQL-текстом до виконання, тому значення ставало структурою команди.
+6. Виправлення. LINQ і `EF.Functions.ILike` з екрануванням і параметром для q; allowlist createdAtUtc|severity|status для sortBy; серверна валідація контракту створення.
+7. Retest і позитивна регресія. Той самий ввід дає порожню вибірку; USB і апостроф працюють як звичайний пошук.
+8. Залишковий ризик. Перевірка не замінює автентифікацію, авторизацію, пагінацію, rate limit чи огляд інших endpoint; owner ще з demo-контексту (ЛР 3).

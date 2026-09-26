@@ -108,3 +108,52 @@ SecureLab — навчальний трекер інцидентів (варіа
 шаблон `Built severity summary with {GroupCount} groups for status filter {Status}`
 і два параметри, кількість груп і фільтр. Описи інцидентів, connection string,
 cookies і токени до журналу не потрапляють.
+
+## ЛР 2: контракт створення і безпечний пошук (варіант 2-A)
+
+Гілка `lab/2-input-sqli` від тегу `v0.1.0`; scaffold `lab-02-start-v1`. Додано два
+маршрути в `src/SecureLab.Api/Scaffolding/Lab02Endpoints.cs`.
+
+### Маршрут створення інциденту
+
+```text
+POST /api/incidents з JSON-тілом
+  → binding у CreateIncidentRequest (тільки title, description, severity, occurredAtUtc)
+  → серверна валідація: required, довжина title<=160 і description<=4000, severity через
+    Enum.TryParse + Enum.IsDefined, occurredAtUtc не далі ніж +5 хв, cross-field High/Critical → опис>=40
+  → помилки збираються у Dictionary і повертаються як 400 application/problem+json (до доступу до БД)
+  → перевірка предметного конфлікту: активний інцидент з тим самим title (Trim, з регістром) → 409
+  → створення entity: Id, OwnerUserId (demo Alice), Status=New, часи задає сервер
+  → SaveChangesAsync (EF Core параметризує INSERT)
+  → 201 Created + CreatedIncidentResponse (без OwnerUserId і updatedAtUtc)
+```
+
+### Маршрут пошуку після виправлення
+
+```text
+GET /api/incidents/search?q=...&sortBy=...
+  → sortBy перевіряється за allowlist (createdAtUtc | severity | status); інше → 400 з ключем sortBy
+  → q екранується (\, %, _) і передається у EF.Functions.ILike як параметр @pattern ESCAPE '\'
+  → сортування задає серверний CASE-вираз (Critical..Low, New..Closed), а не колонка з клієнта
+  → Take(50) → SearchIncidentResponse[] як JSON
+```
+
+### Оновлені межі довіри для ЛР 2
+
+| Межа | Дані | Контроль після ЛР 2 |
+|---|---|---|
+| браузер → API (create) | title, description, severity, occurredAtUtc | окремий request DTO без server-managed полів; серверна валідація формату, діапазону і cross-field; 400 problem+json |
+| браузер → API (search) | q, sortBy | q як параметр ILIKE; sortBy лише з allowlist, інакше 400; ім'я колонки з клієнта не приймається |
+| API → PostgreSQL | значення пошуку і сортування | значення передаються параметром; структуру (ORDER BY) вибирає код; жодної конкатенації недовіреного тексту в SQL |
+
+### A-01: огляд точок доступу до даних (fixed commit)
+
+| Файл / метод | Категорія | Висновок |
+|---|---|---|
+| `Scaffolding/Lab02Endpoints.cs` — search | LINQ + параметр | виправлено: `EF.Functions.ILike` з параметром і allowlist сортування |
+| `Scaffolding/Lab02Endpoints.cs` — create | LINQ | `AnyAsync` і `Add/SaveChanges`; EF параметризує; safe |
+| `Application/Incidents/IncidentQueries.cs` | LINQ | список, summary, деталі — тільки LINQ; параметри `@status`, `@id`; safe |
+| `Data/DatabaseBootstrap.cs` — `ExecuteSqlRawAsync` | trusted static SQL | `TRUNCATE` з фіксованими іменами таблиць, без вводу; лише в Development; safe |
+| `Data/DatabaseBootstrap.cs` — `MigrateAsync` | EF migration | згенерований EF, без вводу; safe |
+
+Після виправлення `FromSqlRaw` у `src/` немає.

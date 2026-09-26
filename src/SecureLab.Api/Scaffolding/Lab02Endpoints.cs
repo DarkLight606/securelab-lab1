@@ -5,8 +5,7 @@ using SecureLab.Api.Presentation.Contracts;
 
 namespace SecureLab.Api.Scaffolding;
 
-// Навчальний старт ЛР 02. Запускати лише з локальними штучними даними.
-// Пошук у цьому файлі свідомо лишається уразливим до фіксованого стану "до"; його усувають на етапі 4.
+// Пошук і створення інцидентів ЛР 02. Запускати лише з локальними штучними даними.
 public static class Lab02Endpoints
 {
     // Активні статуси: наявність інциденту в одному з них блокує повторне створення того самого title.
@@ -20,22 +19,65 @@ public static class Lab02Endpoints
 
     public static void MapLab02Endpoints(this WebApplication app)
     {
-        // УРАЗЛИВИЙ ПОШУК (стан "до"). q і sortBy склеюються в текст SQL, тому значення може стати структурою.
+        // БЕЗПЕЧНИЙ ПОШУК (стан "після"). Значення q передається параметром через EF.Functions.ILike,
+        // а структуру (напрямок сортування) вибирає серверний allowlist. Ім'я колонки з клієнта не береться.
         app.MapGet("/api/incidents/search", async (string? q, string? sortBy, SecureLabDbContext db, CancellationToken ct) =>
         {
-            var order = sortBy switch
+            // sortBy обирає СТРУКТУРУ запиту, тому перевіряється за allowlist і не параметризується.
+            var sort = string.IsNullOrEmpty(sortBy) ? "createdAtUtc" : sortBy;
+            if (sort is not ("createdAtUtc" or "severity" or "status"))
             {
-                null or "" or "createdAtUtc" => "created_at_utc DESC",
-                "severity" => "severity", "status" => "status", _ => sortBy
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["sortBy"] = ["Допустимі значення: createdAtUtc, severity, status."]
+                });
+            }
+
+            var query = db.Incidents.AsNoTracking();
+
+            if (!string.IsNullOrEmpty(q))
+            {
+                // Літеральний підрядок: екрануємо escape-символ, потім обидва wildcard ILIKE (% і _).
+                const string escape = "\\";
+                var pattern = "%" + q
+                    .Replace(escape, escape + escape)
+                    .Replace("%", escape + "%")
+                    .Replace("_", escape + "_") + "%";
+                query = query.Where(incident =>
+                    EF.Functions.ILike(incident.Title, pattern, escape)
+                    || EF.Functions.ILike(incident.Description, pattern, escape));
+            }
+
+            // Кожній назві allowlist відповідає явний LINQ-вираз. Severity і Status зберігаються текстом,
+            // тому потрібне явне ранжування, а не абеткове сортування колонки.
+            var ordered = sort switch
+            {
+                "severity" => query
+                    .OrderBy(incident => incident.Severity == IncidentSeverity.Critical ? 0
+                        : incident.Severity == IncidentSeverity.High ? 1
+                        : incident.Severity == IncidentSeverity.Medium ? 2 : 3)
+                    .ThenByDescending(incident => incident.CreatedAtUtc),
+                "status" => query
+                    .OrderBy(incident => incident.Status == IncidentStatus.New ? 0
+                        : incident.Status == IncidentStatus.Triaged ? 1
+                        : incident.Status == IncidentStatus.InProgress ? 2
+                        : incident.Status == IncidentStatus.Resolved ? 3 : 4)
+                    .ThenByDescending(incident => incident.CreatedAtUtc),
+                _ => query.OrderByDescending(incident => incident.CreatedAtUtc)
             };
-            var sql = "SELECT * FROM incidents WHERE title ILIKE '%" + (q ?? "")
-                + "%' OR description ILIKE '%" + (q ?? "") + "%' ORDER BY " + order + " LIMIT 50";
-            var rows = await db.Incidents.FromSqlRaw(sql).AsNoTracking().ToListAsync(ct);
-            return Results.Ok(rows.Select(row => new
-            {
-                row.Id, row.Title, row.Description,
-                Severity = row.Severity.ToString(), Status = row.Status.ToString(), row.CreatedAtUtc
-            }));
+
+            var rows = await ordered
+                .Take(50)
+                .Select(incident => new SearchIncidentResponse(
+                    incident.Id,
+                    incident.Title,
+                    incident.Description,
+                    incident.Severity.ToString(),
+                    incident.Status.ToString(),
+                    incident.CreatedAtUtc))
+                .ToListAsync(ct);
+
+            return Results.Ok(rows);
         });
 
         // Контракт створення інциденту 2-A: серверна валідація формату, діапазону, взаємозалежних полів
