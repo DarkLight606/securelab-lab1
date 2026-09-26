@@ -7,6 +7,17 @@ namespace SecureLab.Api.Application.Incidents;
 
 public sealed class IncidentQueries(SecureLabDbContext dbContext, ILogger<IncidentQueries> logger)
 {
+    // Order of the severity summary: from the most critical level to the least critical.
+    // Severity is stored as text, so ORDER BY in SQL would sort alphabetically
+    // (High, Low, Medium). The order is therefore fixed here, in code.
+    private static readonly IncidentSeverity[] SeveritySummaryOrder =
+    [
+        IncidentSeverity.Critical,
+        IncidentSeverity.High,
+        IncidentSeverity.Medium,
+        IncidentSeverity.Low
+    ];
+
     public async Task<IReadOnlyList<IncidentListItemResponse>> GetListAsync(
         IncidentStatus? status,
         CancellationToken cancellationToken)
@@ -29,6 +40,37 @@ public sealed class IncidentQueries(SecureLabDbContext dbContext, ILogger<Incide
                 incident.OccurredAtUtc,
                 incident.CreatedAtUtc))
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<IncidentSeveritySummaryResponse>> GetSeveritySummaryAsync(
+        IncidentStatus? status,
+        CancellationToken cancellationToken)
+    {
+        var query = dbContext.Incidents.AsNoTracking();
+        if (status is not null)
+        {
+            query = query.Where(incident => incident.Status == status);
+        }
+
+        // Zero-group policy: only existing groups. GroupBy returns only severities
+        // that have incidents, so a level without incidents is absent and an empty
+        // selection gives an empty array.
+        var groups = await query
+            .GroupBy(incident => incident.Severity)
+            .Select(group => new { Severity = group.Key, Count = group.Count() })
+            .ToListAsync(cancellationToken);
+
+        var summary = groups
+            .OrderBy(group => Array.IndexOf(SeveritySummaryOrder, group.Severity))
+            .Select(group => new IncidentSeveritySummaryResponse(group.Severity.ToString(), group.Count))
+            .ToList();
+
+        logger.LogInformation(
+            "Built severity summary with {GroupCount} groups for status filter {Status}",
+            summary.Count,
+            status);
+
+        return summary;
     }
 
     public Task<IncidentDetailsResponse?> GetDetailsAsync(Guid id, CancellationToken cancellationToken)

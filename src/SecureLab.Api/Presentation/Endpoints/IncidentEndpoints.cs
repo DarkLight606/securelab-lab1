@@ -6,6 +6,18 @@ namespace SecureLab.Api.Presentation.Endpoints;
 
 public static class IncidentEndpoints
 {
+    // Explicit allowlist of status values accepted by the severity summary.
+    // Enum.TryParse would also accept a number such as "1", so only these names pass.
+    private static readonly Dictionary<string, IncidentStatus> SummaryStatusAllowlist =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["New"] = IncidentStatus.New,
+            ["Triaged"] = IncidentStatus.Triaged,
+            ["InProgress"] = IncidentStatus.InProgress,
+            ["Resolved"] = IncidentStatus.Resolved,
+            ["Closed"] = IncidentStatus.Closed
+        };
+
     public static IEndpointRouteBuilder MapIncidentEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/incidents")
@@ -21,12 +33,10 @@ public static class IncidentEndpoints
             .Produces<IncidentDetailsResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapGet("/severity-summary", () => Results.Problem(
-                title: "Точку розширення ще не реалізовано",
-                detail: "Завершіть цей endpoint під час лабораторної роботи № 1.",
-                statusCode: StatusCodes.Status501NotImplemented))
+        group.MapGet("/severity-summary", GetSeveritySummaryAsync)
             .WithName("GetIncidentSeveritySummary")
-            .ProducesProblem(StatusCodes.Status501NotImplemented);
+            .Produces<IReadOnlyList<IncidentSeveritySummaryResponse>>()
+            .ProducesValidationProblem();
 
         return endpoints;
     }
@@ -52,6 +62,28 @@ public static class IncidentEndpoints
         }
 
         return Results.Ok(await queries.GetListAsync(parsedStatus, cancellationToken));
+    }
+
+    private static async Task<IResult> GetSeveritySummaryAsync(
+        string? status,
+        IncidentQueries queries,
+        CancellationToken cancellationToken)
+    {
+        IncidentStatus? allowedStatus = null;
+        if (status is not null)
+        {
+            if (!SummaryStatusAllowlist.TryGetValue(status, out var candidate))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["status"] = ["Допустимі значення: New, Triaged, InProgress, Resolved, Closed."]
+                });
+            }
+
+            allowedStatus = candidate;
+        }
+
+        return Results.Ok(await queries.GetSeveritySummaryAsync(allowedStatus, cancellationToken));
     }
 
     private static async Task<IResult> GetDetailsAsync(
