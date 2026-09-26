@@ -84,7 +84,8 @@ main {
   color: #52627a;
 }
 
-form {
+form,
+.controls {
   display: flex;
   gap: 0.5rem;
   align-items: center;
@@ -121,6 +122,32 @@ select {
   background: #edf4ff;
 }
 
+.summary-panel {
+  grid-column: 1 / -1;
+}
+
+.summary-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+}
+
+.summary-list li {
+  padding: 0.5rem 0.9rem;
+  border: 1px solid #d8e0ec;
+  border-radius: 0.55rem;
+  background: #f5f8fc;
+  font-weight: 600;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
 .metadata,
 .details-placeholder {
   color: #5c6b80;
@@ -129,7 +156,8 @@ select {
 @media (max-width: 760px) {
   .page-header,
   .toolbar,
-  form {
+  form,
+  .controls {
     align-items: stretch;
     flex-direction: column;
   }

@@ -2,6 +2,10 @@ const listElement = document.querySelector("#incident-list");
 const listStatusElement = document.querySelector("#list-status");
 const detailsElement = document.querySelector("#incident-details");
 const filterForm = document.querySelector("#filter-form");
+const summaryButton = document.querySelector("#summary-button");
+const summaryStatusFilter = document.querySelector("#summary-status-filter");
+const summaryStatusElement = document.querySelector("#summary-status");
+const summaryList = document.querySelector("#summary-list");
 
 async function apiFetch(path, options = {}) {
   const response = await fetch(path, {
@@ -102,6 +106,41 @@ async function loadIncidentDetails(id) {
     detailsElement.textContent = `Помилка: ${error.message}`;
   }
 }
+
+async function loadSeveritySummary() {
+  // State 1: loading. Clear the previous result and block repeated clicks.
+  summaryList.replaceChildren();
+  summaryStatusElement.textContent = "Завантаження…";
+  summaryButton.disabled = true;
+
+  const status = summaryStatusFilter.value;
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+
+  try {
+    const summary = await apiFetch(`/api/incidents/severity-summary${query}`);
+
+    // State 2: empty. The API returns [] when no incident matches the filter.
+    if (summary.length === 0) {
+      summaryStatusElement.textContent = "Даних немає";
+      return;
+    }
+
+    // Success: one DOM node per group, text is written only through textContent.
+    summaryStatusElement.textContent = `Груп: ${summary.length}`;
+    for (const group of summary) {
+      const item = document.createElement("li");
+      item.textContent = `${group.severity}: ${group.count}`;
+      summaryList.append(item);
+    }
+  } catch {
+    // State 3: error. A fixed message, without server details or a stack trace.
+    summaryStatusElement.textContent = "Не вдалося отримати підсумок. Спробуйте пізніше.";
+  } finally {
+    summaryButton.disabled = false;
+  }
+}
+
+summaryButton.addEventListener("click", loadSeveritySummary);
 
 filterForm.addEventListener("submit", (event) => {
   event.preventDefault();
