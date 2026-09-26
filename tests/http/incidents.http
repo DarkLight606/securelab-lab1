@@ -25,12 +25,29 @@ Accept: application/json
 GET {{host}}/api/incidents?status=Unknown
 Accept: application/json
 
-### Lab 1 extension point: expected 501 before student implementation
-# Planned contract (Lab 1, variant 2-A):
+### Lab 1 severity summary: expected 200 (was 501 in baseline)
+# Contract (Lab 1, variant 2-A):
 #   GET /api/incidents/severity-summary[?status=<IncidentStatus>], no request body
 #   200 OK, JSON array of { "severity": string, "count": int }, no other fields
 #   zero groups: only severities that exist are returned; no incidents -> []
 #   order: explicit criticality order Critical, High, Medium, Low (set in code, not by SQL)
 #   status: optional, allowlist New|Triaged|InProgress|Resolved|Closed, otherwise 400
+# Expected on baseline seed: [High 1, Medium 1, Low 1], no Critical
 GET {{host}}/api/incidents/severity-summary
+Accept: application/json
+
+### Severity summary with a valid status: expected 200 [Medium 1]
+GET {{host}}/api/incidents/severity-summary?status=Triaged
+Accept: application/json
+
+### Severity summary with no matching incidents: expected 200 []
+GET {{host}}/api/incidents/severity-summary?status=Resolved
+Accept: application/json
+
+### Severity summary with a status outside the allowlist: expected 400 Validation Problem Details
+GET {{host}}/api/incidents/severity-summary?status=Unknown
+Accept: application/json
+
+### Numeric status is not in the allowlist either: expected 400
+GET {{host}}/api/incidents/severity-summary?status=1
 Accept: application/json
