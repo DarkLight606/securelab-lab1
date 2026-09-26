@@ -5,14 +5,20 @@ using SecureLab.Api.Presentation.Contracts;
 
 namespace SecureLab.Api.Tests;
 
-// These tests read the shared local study database and expect the baseline seed:
-// one Low (New), one Medium (Triaged) and one High (InProgress) incident, no Critical.
+// Тести читають спільну локальну навчальну БД. Після встановлення scaffold ЛР 02 штатний seed
+// містить Low=3 (усі зі статусом New), Medium=1 (Triaged) і High=1 (InProgress), без Critical.
+// Перед кожним тестом БД повертається до цього стану, тому інциденти, створені тестами контракту,
+// не впливають на підрахунок. Оновлено лише очікувані числа після звірки seed; перевірки не послаблено.
 public sealed class SeveritySummaryEndpointTests(SecureLabApiFactory factory)
-    : IClassFixture<SecureLabApiFactory>
+    : IClassFixture<SecureLabApiFactory>, IAsyncLifetime
 {
     private const string SummaryUrl = "/api/incidents/severity-summary";
 
     private readonly HttpClient _client = factory.CreateClient();
+
+    public Task InitializeAsync() => factory.ResetDatabaseAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public async Task GetSummary_ReturnsExistingGroupsInCriticalityOrder()
@@ -24,7 +30,9 @@ public sealed class SeveritySummaryEndpointTests(SecureLabApiFactory factory)
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
         Assert.NotNull(summary);
         Assert.Equal(["High", "Medium", "Low"], summary.Select(group => group.Severity));
-        Assert.All(summary, group => Assert.Equal(1, group.Count));
+        Assert.Equal(1, summary.Single(group => group.Severity == "High").Count);
+        Assert.Equal(1, summary.Single(group => group.Severity == "Medium").Count);
+        Assert.Equal(3, summary.Single(group => group.Severity == "Low").Count);
         Assert.DoesNotContain(summary, group => group.Severity == "Critical");
     }
 
@@ -69,10 +77,10 @@ public sealed class SeveritySummaryEndpointTests(SecureLabApiFactory factory)
     }
 
     [Theory]
-    [InlineData("Triaged", "Medium")]
-    [InlineData("inprogress", "High")]
-    [InlineData("New", "Low")]
-    public async Task GetSummary_ForValidStatus_CountsOnlyMatchingIncidents(string status, string expectedSeverity)
+    [InlineData("Triaged", "Medium", 1)]
+    [InlineData("inprogress", "High", 1)]
+    [InlineData("New", "Low", 3)]
+    public async Task GetSummary_ForValidStatus_CountsOnlyMatchingIncidents(string status, string expectedSeverity, int expectedCount)
     {
         var summary = await _client.GetFromJsonAsync<List<IncidentSeveritySummaryResponse>>(
             $"{SummaryUrl}?status={status}");
@@ -80,6 +88,6 @@ public sealed class SeveritySummaryEndpointTests(SecureLabApiFactory factory)
         Assert.NotNull(summary);
         var group = Assert.Single(summary);
         Assert.Equal(expectedSeverity, group.Severity);
-        Assert.Equal(1, group.Count);
+        Assert.Equal(expectedCount, group.Count);
     }
 }
