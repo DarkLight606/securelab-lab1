@@ -6,11 +6,25 @@ namespace SecureLab.Api.Tests;
 
 // Контракт створення інциденту 2-A (етап 2). Кожен тест використовує унікальний title,
 // тому не залежить від інших записів у спільній локальній навчальній БД.
+// ЛР 03: POST /api/incidents захищено, тому перевірки контракту (201, 400, 409) виконує
+// cookie-клієнт Bob. Окремий анонімний сценарій A-01 лежить в AuthenticationSecurityTests.
 public sealed class IncidentCreateTests(SecureLabApiFactory factory)
-    : IClassFixture<SecureLabApiFactory>
+    : IClassFixture<SecureLabApiFactory>, IAsyncLifetime
 {
     private const string Url = "/api/incidents";
-    private readonly HttpClient _client = factory.CreateClient();
+    private HttpClient _client = null!;
+
+    private static string StudyPassword =>
+        Environment.GetEnvironmentVariable("SeedUsers__Password")
+        ?? throw new InvalidOperationException("Set local SeedUsers__Password outside Git.");
+
+    public async Task InitializeAsync() => _client = await factory.LoginAsync("bob", StudyPassword);
+
+    public Task DisposeAsync()
+    {
+        _client.Dispose();
+        return Task.CompletedTask;
+    }
 
     private static object ValidBody(string title, string? severity = "Medium", string? description = null)
         => new
@@ -131,8 +145,8 @@ public sealed class IncidentCreateTests(SecureLabApiFactory factory)
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
     }
 
-    // A-02 / CP-01: зайві поля ownerUserId і status у тілі ігноруються (захист від overposting).
-    // Створений інцидент має owner із demo-контексту (Alice) і status New, а не значення з тіла.
+    // A-02 (ЛР 02) / CP-01: зайві поля ownerUserId і status у тілі ігноруються (захист від overposting).
+    // Після ЛР 03 власник береться з principal (тут увійшов Bob), а status лишається New.
     [Fact]
     public async Task Create_IgnoresClientSuppliedOwnerAndStatus()
     {
@@ -142,7 +156,7 @@ public sealed class IncidentCreateTests(SecureLabApiFactory factory)
             description = "Опис достатньої довжини для перевірки ігнорування зайвих полів.",
             severity = "Low",
             occurredAtUtc = DateTimeOffset.UtcNow.AddHours(-1),
-            ownerUserId = "10000000-0000-0000-0000-000000000002", // Bob
+            ownerUserId = "10000000-0000-0000-0000-000000000001", // Alice: чуже значення
             status = "Closed"
         };
 
@@ -153,7 +167,7 @@ public sealed class IncidentCreateTests(SecureLabApiFactory factory)
 
         var location = createResponse.Headers.Location!.ToString();
         using var details = JsonDocument.Parse(await _client.GetStringAsync(location));
-        Assert.Equal("Аліса Коваль", details.RootElement.GetProperty("ownerDisplayName").GetString());
+        Assert.Equal("Боб Мельник", details.RootElement.GetProperty("ownerDisplayName").GetString());
         Assert.Equal("New", details.RootElement.GetProperty("status").GetString());
     }
 
