@@ -1,0 +1,6 @@
+{
+  "release": "lab-03-start-v1",
+  "inherits": "v0.2.0",
+  "base_commit": "9539debaaaad535a6191c4fcc2bbed30457731ca",
+  "entry_parent": "9539debaaaad535a6191c4fcc2bbed30457731ca"
+}
