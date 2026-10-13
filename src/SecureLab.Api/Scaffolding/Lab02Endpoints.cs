@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using SecureLab.Api.Data;
 using SecureLab.Api.Data.Entities;
@@ -82,8 +83,21 @@ public static class Lab02Endpoints
 
         // Контракт створення інциденту 2-A: серверна валідація формату, діапазону, взаємозалежних полів
         // і предметного правила ще до доступу до БД. Клієнт не може передати owner, status чи audit-часи.
-        app.MapPost("/api/incidents", async (CreateIncidentRequest request, SecureLabDbContext db, CancellationToken ct) =>
+        // ЛР 03: endpoint вимагає автентифікації (анонімний запит дає 401 ще до цього коду),
+        // а власника нового запису бере лише з перевіреного principal.
+        app.MapPost("/api/incidents", async (
+            CreateIncidentRequest request,
+            HttpContext httpContext,
+            SecureLabDbContext db,
+            CancellationToken ct) =>
         {
+            // Ідентифікатор поточного користувача: claim NameIdentifier із cookie-сеансу, не з JSON чи header.
+            var claimedId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(claimedId, out var ownerUserId))
+            {
+                return Results.Problem(statusCode: StatusCodes.Status500InternalServerError);
+            }
+
             var now = DateTimeOffset.UtcNow;
             var errors = new Dictionary<string, string[]>();
 
@@ -156,7 +170,7 @@ public static class Lab02Endpoints
             var incident = new Incident
             {
                 Id = Guid.NewGuid(),
-                OwnerUserId = DbSeeder.AliceId,          // сталий demo-контекст; verified principal з'явиться в ЛР 03
+                OwnerUserId = ownerUserId,               // лише з перевіреного principal (ЛР 03)
                 Title = title,
                 Description = description,
                 Severity = severity,
@@ -177,11 +191,12 @@ public static class Lab02Endpoints
                     incident.Status.ToString(),
                     incident.OccurredAtUtc,
                     incident.CreatedAtUtc));
-        });
+        }).RequireAuthorization();
     }
 }
 
 // Request DTO: лише поля, які надсилає клієнт. Немає OwnerUserId, Status чи audit-часів,
 // тому клієнт не може перезаписати server-managed поля (захист від overposting).
+// Зайве ownerUserId у JSON ігнорується під час binding і ніколи не відновлюється з raw JSON (A-05).
 public sealed record CreateIncidentRequest(
     string? Title, string? Description, string? Severity, DateTimeOffset? OccurredAtUtc);

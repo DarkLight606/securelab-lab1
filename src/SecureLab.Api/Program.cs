@@ -1,6 +1,7 @@
 using SecureLab.Api.Scaffolding;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
+using SecureLab.Api.Application.Auth;
 using SecureLab.Api.Application.Incidents;
 using SecureLab.Api.Data;
 using SecureLab.Api.Presentation.Endpoints;
@@ -22,6 +23,11 @@ builder.Services.AddDbContext<SecureLabDbContext>(options =>
 builder.Services.AddScoped<IncidentQueries>();
 
 builder.AddLab03Identity();
+
+// ЛР 03: обмеження невдалих спроб входу (ключ: IP + ім'я користувача) і його налаштування.
+builder.Services.Configure<LoginAttemptLimitOptions>(
+    builder.Configuration.GetSection(LoginAttemptLimitOptions.SectionName));
+builder.Services.AddSingleton<LoginAttemptLimiter>();
 
 var app = builder.Build();
 
