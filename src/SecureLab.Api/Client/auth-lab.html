@@ -1,7 +1,73 @@
 <!doctype html>
-<html lang="uk"><meta charset="utf-8"><title>ЛР 03 — сеанс</title>
-<h1>Навчальний сеанс</h1>
-<form id="login"><label>Ім’я <input name="userName" autocomplete="username" required></label>
-<label>Пароль <input name="password" type="password" autocomplete="current-password" required></label><button>Увійти</button></form>
-<button id="me">Мій профіль</button><button id="logout">Вийти</button><pre id="result"></pre>
-<script src="auth-lab.js" defer></script></html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ЛР 03 — сеанс</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="auth-lab.js" defer></script>
+</head>
+<body>
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">SecureLab · ЛР 03</p>
+      <h1>Навчальний сеанс</h1>
+      <p>Стан: <strong id="session-state">перевіряється…</strong></p>
+    </div>
+    <a href="/">Трекер інцидентів</a>
+  </header>
+
+  <main>
+    <section class="panel" aria-labelledby="register-title">
+      <h2 id="register-title">Реєстрація</h2>
+      <form id="register" class="auth-form">
+        <label>Ім’я користувача <input name="userName" autocomplete="username" required minlength="3" maxlength="32"></label>
+        <label>Електронна пошта <input name="email" type="email" autocomplete="email" required maxlength="256"></label>
+        <label>Ім’я для показу <input name="displayName" required minlength="2" maxlength="120"></label>
+        <label>Пароль <input name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128"></label>
+        <button type="submit">Зареєструватися</button>
+      </form>
+      <p id="register-result" role="status"></p>
+    </section>
+
+    <section class="panel" aria-labelledby="login-title">
+      <h2 id="login-title">Вхід</h2>
+      <form id="login" class="auth-form">
+        <label>Ім’я користувача <input name="userName" autocomplete="username" required></label>
+        <label>Пароль <input name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Увійти</button>
+      </form>
+      <div class="toolbar">
+        <button id="me" type="button">Мій профіль</button>
+        <button id="logout" type="button">Вийти</button>
+      </div>
+      <p id="result" role="status"></p>
+      <dl id="profile" class="profile" hidden>
+        <dt>Ідентифікатор</dt><dd id="profile-id"></dd>
+        <dt>Ім’я користувача</dt><dd id="profile-username"></dd>
+        <dt>Ім’я для показу</dt><dd id="profile-displayname"></dd>
+        <dt>Ролі</dt><dd id="profile-roles"></dd>
+      </dl>
+    </section>
+
+    <section class="panel" aria-labelledby="create-title">
+      <h2 id="create-title">Новий інцидент</h2>
+      <form id="create" class="auth-form">
+        <label>Заголовок <input name="title" required maxlength="160"></label>
+        <label>Опис <textarea name="description" required maxlength="4000" rows="3"></textarea></label>
+        <label>Рівень
+          <select name="severity">
+            <option value="Low">Low</option>
+            <option value="Medium" selected>Medium</option>
+            <option value="High">High</option>
+            <option value="Critical">Critical</option>
+          </select>
+        </label>
+        <label>Час настання (UTC) <input name="occurredAtUtc" type="datetime-local" required></label>
+        <button type="submit">Створити</button>
+      </form>
+      <p id="create-result" role="status"></p>
+    </section>
+  </main>
+</body>
+</html>

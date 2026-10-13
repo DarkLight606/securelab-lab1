@@ -1,0 +1,73 @@
+@baseUrl = http://localhost:5080
+
+# ЛР 03. Ручні сценарії без пароля у файлі: значення пароля замініть у клієнті перед надсиланням
+# або використайте навчальну сторінку /auth-lab.html. Cookie не копіюйте в цей файл.
+
+### Крок 1 (A-01). GET /api/me без входу: до змін 501, після змін 401 без redirect
+GET {{baseUrl}}/api/me
+
+### Крок 4 (дефект scaffold). GET /api/me без cookie з чужим X-Demo-UserId:
+### до змін 200 і профіль Bob (дефект), після змін 401
+GET {{baseUrl}}/api/me
+X-Demo-UserId: 10000000-0000-0000-0000-000000000002
+
+### Крок 2. Вхід alice: 204 і Set-Cookie (значення не записувати)
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{ "userName": "alice", "password": "<локальний навчальний пароль>" }
+
+### Крок 3 (A-02). GET /api/me після входу: 200 і лише дозволені поля профілю Alice
+GET {{baseUrl}}/api/me
+
+### Крок 5 (A-03). Та сама cookie Alice з header Bob: відповідь лишається профілем Alice
+GET {{baseUrl}}/api/me
+X-Demo-UserId: 10000000-0000-0000-0000-000000000002
+
+### A-05. Створення з чужим ownerUserId: 201, власник нового запису — користувач із cookie
+POST {{baseUrl}}/api/incidents
+Content-Type: application/json
+
+{ "title": "Проба власника", "description": "Опис достатньої довжини для перевірки власника.", "severity": "Low", "occurredAtUtc": "2026-10-13T10:00:00Z", "ownerUserId": "10000000-0000-0000-0000-000000000001" }
+
+### Крок 6 (A-06). Logout: 204 і Set-Cookie з порожнім значенням та датою в минулому
+POST {{baseUrl}}/api/auth/logout
+
+### Крок 7 (A-06). GET /api/me після logout: 401
+GET {{baseUrl}}/api/me
+
+### A-07. Невідомий користувач: 401 application/problem+json
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{ "userName": "nobody", "password": "Wrong-Pass-123!" }
+
+### A-07. Відомий користувач, хибний пароль: той самий 401 і те саме тіло (без traceId)
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{ "userName": "alice", "password": "Wrong-Pass-123!" }
+
+### T-01. Реєстрація: 201, Location /api/me, тіло лише id, userName, displayName
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{ "userName": "student01", "email": "student01@example.test", "displayName": "Студент 01", "password": "<одноразовий пароль за політикою>" }
+
+### T-02. Повтор тієї самої реєстрації: 409 application/problem+json
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{ "userName": "student01", "email": "student01@example.test", "displayName": "Студент 01", "password": "<одноразовий пароль за політикою>" }
+
+### T-02. Слабкий пароль: 400 з ключем password
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{ "userName": "student02", "email": "student02@example.test", "displayName": "Студент 02", "password": "short" }
+
+### Rate limit. Після 5 невдалих спроб для тієї самої пари (IP, ім'я) за хвилину: 429 і Retry-After
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{ "userName": "probe", "password": "Wrong-Pass-123!" }
