@@ -157,3 +157,66 @@ GET /api/incidents/search?q=...&sortBy=...
 | `Data/DatabaseBootstrap.cs` — `MigrateAsync` | EF migration | згенерований EF, без вводу; safe |
 
 Після виправлення `FromSqlRaw` у `src/` немає.
+
+## ЛР 3: автентифікація і власник із перевіреного principal
+
+Гілка `lab/3-authentication` від тегу `v0.2.0`; scaffold `lab-03-start-v1`
+(`.scaffolds/lab-03.json`). Scaffold додав ASP.NET Core Identity з EF stores
+(`ApplicationUser : IdentityUser<Guid>`, таблиці `identity_*` замість `study_users`),
+міграцію `Lab03Identity`, seed чотирьох акаунтів (Alice, Bob, Morgan, Admin) зі сталими
+Guid і cookie-профіль у `Scaffolding/Lab03Identity.cs`.
+
+### Маршрут довіри
+
+```text
+POST /api/auth/login {userName, password}
+  → Lab03Identity.LoginAsync: перевірка контракту, LoginAttemptLimiter (ключ IP+ім'я)
+  → SignInManager.PasswordSignInAsync: стандартний hasher звіряє пароль із PasswordHash
+  → 204 + Set-Cookie .AspNetCore.Identity.Application (HttpOnly; SameSite=Lax; Secure за HTTPS)
+наступний запит браузера (cookie додає сам браузер, credentials: same-origin)
+  → UseAuthentication(): cookie handler розшифровує квиток → HttpContext.User (claims)
+  → UseAuthorization(): .RequireAuthorization() на /api/me, /api/auth/logout, POST /api/incidents;
+    анонімний principal → 401 без redirect (OnRedirectToLogin)
+  → endpoint читає ClaimTypes.NameIdentifier → Guid
+  → GET /api/me: CurrentUserResponse(Id, UserName, DisplayName, Roles)
+  → POST /api/incidents: Incident.OwnerUserId = цей Guid; ownerUserId із JSON ігнорується
+POST /api/auth/logout → SignInManager.SignOutAsync → Set-Cookie з порожнім значенням і датою 1970
+```
+
+### Ключові файли ЛР 3
+
+| Рівень | Файл | Що там шукати |
+|---|---|---|
+| Endpoint | `src/SecureLab.Api/Scaffolding/Lab03Identity.cs` | `RegisterAsync`, `MapRegistrationFailure`, `LoginAsync`, `LogoutAsync`, `GetCurrentUserAsync`, cookie options в `AddLab03Identity` |
+| Endpoint | `src/SecureLab.Api/Scaffolding/Lab02Endpoints.cs` | `POST /api/incidents` з `.RequireAuthorization()` і owner із `ClaimTypes.NameIdentifier` |
+| DTO | `src/SecureLab.Api/Presentation/Contracts/AuthContracts.cs` | `RegisterRequest`, `RegisterResponse`, `CurrentUserResponse` |
+| Application | `src/SecureLab.Api/Application/Auth/LoginAttemptLimiter.cs` | лічильник невдалих входів на `PartitionedRateLimiter`, `Auth:LoginAttemptLimit` |
+| Application | `src/SecureLab.Api/Application/Auth/AuthenticationEvents.cs` | події автентифікації без credentials |
+| Клієнт | `src/SecureLab.Api/Client/auth-lab.html`, `auth-lab.js` | register, login, стан сеансу, профіль, create, logout; `textContent` |
+| Перевірка | `tests/SecureLab.Api.Tests/AuthenticationSecurityTests.cs` | A-01 … A-07 |
+| Перевірка | `RegistrationTests.cs`, `CookieProfileTests.cs`, `LoginRateLimitTests.cs`, `SessionRevocationTests.cs`, `PasswordHasherUpgradeTests.cs` | register, flags, 429, revocation, rehash |
+| Перевірка | `tests/http/lab-03-auth.http` | ручні сценарії без пароля у файлі |
+
+### Межі довіри після ЛР 3
+
+| Межа | Дані | Що не можна припускати | Контроль |
+|---|---|---|---|
+| браузер → API (register) | userName, email, displayName, password | що клієнт не надішле role, id або чужі поля | `RegisterRequest` без server-managed полів; перевірки довжини й формату; `UserManager.CreateAsync` хешує пароль; 400/409 без пароля у відповіді |
+| браузер → API (login) | userName, password | що невдалі спроби обмежені кимось іншим | однаковий 401 для невідомого імені й хибного пароля; `LoginAttemptLimiter` 5 невдач/60 с на IP+ім'я → 429 |
+| браузер → API (будь-який захищений запит) | cookie `.AspNetCore.Identity.Application`, довільні header/body | що `X-Demo-UserId`, hidden field чи body доводять особу | principal лише з cookie через `UseAuthentication()`; endpoint читає claim, а не header |
+| API → PostgreSQL (identity_users) | PasswordHash, SecurityStamp | що hash можна показати або порівняти вручну | лише Identity читає й пише ці стовпці; у DTO, журналі та звіті їх немає |
+| API → журнал | події автентифікації | що в журнал можна писати ім'я або тіло запиту | `AuthenticationEvents`: тип, підказка `al***(5)`, результат, trace id |
+| CSRF (навчальний борг) | cookie додається браузером автоматично | що SameSite=Lax закриває всі cross-site сценарії | Lax відсікає cross-site POST; anti-forgery модель у ЛР 6 |
+
+### Конфігураційні входи ЛР 3
+
+| Вхід | Що задає |
+|---|---|
+| змінна середовища `SeedUsers__Password` | пароль чотирьох навчальних акаунтів під час seed/reset і для тестів; у файлах проєкту відсутній |
+| `appsettings.json` → `Auth:LoginAttemptLimit` | `PermitLimit` (5) і `Window` (00:01:00) для лічильника невдалих входів; тести перевизначають через in-memory configuration |
+
+### Повернення до відомого стану (оновлено)
+
+Reset тепер очищує і доменні таблиці, і `identity_*`, потім знову створює ролі, чотири
+акаунти з паролем із `SeedUsers__Password` та seed-інциденти. Два послідовні reset дають
+однаковий стан (ті самі Guid акаунтів і власники інцидентів).

@@ -130,3 +130,70 @@ Endpoint `GET /api/incidents/severity-summary` замість 501 поверта
 6. Виправлення. LINQ і `EF.Functions.ILike` з екрануванням і параметром для q; allowlist createdAtUtc|severity|status для sortBy; серверна валідація контракту створення.
 7. Retest і позитивна регресія. Той самий ввід дає порожню вибірку; USB і апостроф працюють як звичайний пошук.
 8. Залишковий ризик. Перевірка не замінює автентифікацію, авторизацію, пагінацію, rate limit чи огляд інших endpoint; owner ще з demo-контексту (ЛР 3).
+
+# Звіт до лабораторної роботи № 3
+
+Виконав: Халітов Денис, група КБ-41. Повний звіт з рисунками здано окремо у .docx.
+
+## Відтворення (усі рівні)
+
+- Обраний рівень: «Відмінно» (достатній і добрий рівні виконано повністю, плюс три поглиблення).
+- Baseline 2-A «Трекер інцидентів»; індивідуальних варіантів немає.
+- Base tag `v0.2.0` = commit `9539debaaaad535a6191c4fcc2bbed30457731ca` (fixed commit ЛР 2).
+- Scaffold: release `lab-03-start-v1`, base_commit `9539debaaaad535a6191c4fcc2bbed30457731ca` (`.scaffolds/lab-03.json`), встановлено окремим commit `a930d0f`.
+- Гілка `lab/3-authentication` від `v0.2.0`. Тег `v0.3.0` анотований, на останньому commit гілки; hash дає `git rev-list -n 1 v0.3.0`.
+- ОС/SDK: macOS 15 (Apple Silicon), .NET SDK 10.0.302, Docker (Colima), PostgreSQL 18 у Compose.
+- Команди: `dotnet build SecureLab.sln -c Release`; `docker compose --env-file infra/.env.example -f infra/compose.yaml up -d --wait`; `dotnet run --project src/SecureLab.Api -- --reset-database`; `dotnet test tests/SecureLab.Api.Tests -c Release`. Пароль seed задано лише у терміналі через `SeedUsers__Password`.
+- Фактичний результат після останньої зміни: build 0 Error(s); тести `Passed: 61, Failed: 0` (35 успадкованих плюс 26 нових).
+- Міграція `Lab03Identity` застосовується під час reset і звичайного запуску; два послідовні reset (`resources/commands/reset-twice.sh`) дали однаковий seed (чотири акаунти зі сталими Guid, інциденти Alice і Bob) і двічі зелений набір тестів.
+
+## Власна реалізація і межі
+
+- DTO boundary: `RegisterRequest(UserName, Email, DisplayName, Password)` і `RegisterResponse(Id, UserName, DisplayName)` у `Presentation/Contracts/AuthContracts.cs`; `CurrentUserResponse(Id, UserName, DisplayName, Roles)` для `/api/me`; `CreateIncidentRequest` без owner, status, id. Невідомі поля JSON ігноруються під час binding і не відновлюються з raw JSON.
+- Звідки `/api/me` і create беруть id: лише з `HttpContext.User`, claim `ClaimTypes.NameIdentifier`, який authentication handler сформував із зашифрованої cookie. Заголовок `X-Demo-UserId`, query і body не читаються.
+- Cookie options (надані scaffold, перевірено): `HttpOnly=true`, `SameSite=Lax`, `SecurePolicy=SameAsRequest` у Development і `Always` поза ним; challenge дає 401, forbid дає 403 замість redirect. Межа локального HTTP: у `http://localhost:5080` атрибут `secure` відсутній, бо запит іде через HTTP; тест `Login_OverHttps_SetsHttpOnlySecureLaxSessionCookie` робить запит з HTTPS base address і бачить `secure`. Це не доводить наявність TLS у production.
+- Фактичні flags (добрий рівень): HTTPS-запит: `path=/; secure; samesite=lax; httponly`; HTTP-запит у Development: `path=/; samesite=lax; httponly`. Без `expires` і `max-age` (сеансова cookie).
+- Строк дії: стандартний для Identity, 14 днів зі sliding expiration; окремо не змінювався. Закриття вікна браузера не замінює logout.
+- Однакові відмови login: невідоме ім'я і хибний пароль дають `401 application/problem+json` з однаковими `type`, `title`, `status`; різний лише `traceId`. Автотест A-07 порівнює стабільні поля через `ProblemShape`.
+- Duplicate-контракт: зайняте ім'я, зайнятий email і повтор тієї самої реєстрації дають однаковий `409 Conflict` Problem Details із заголовком «Обліковий запис із таким ім'ям або адресою вже існує». Порушення політики пароля, недозволені символи імені та хибний email дають `400 Validation Problem Details` з ключем поля.
+- Rate limit: ключ розділу `IP клієнта + нормалізоване ім'я користувача`; рахуються лише невдалі спроби; 5 невдач за 60 с дають `429` з `Retry-After: 60`; після вікна вхід відновлюється. Реалізація: `LoginAttemptLimiter` на `PartitionedRateLimiter` із `FixedWindowRateLimiterOptions`, налаштування `Auth:LoginAttemptLimit` в `appsettings.json`.
+- Події автентифікації: `login.succeeded`, `login.failed`, `login.rate_limited`, `logout`, `register.succeeded`, `register.rejected`. У полях: тип події, підказка користувача (`al***(5)`), результат, trace id. Виключено: пароль, cookie, hash, security stamp, token, заголовок Authorization, тіло запиту і повне ім'я користувача.
+- CSRF навчальний борг: cookie-сеанс плюс `SameSite=Lax` відсікає cross-site POST із звичайних форм і скриптів, але не захищає top-level GET і не є повною CSRF-моделлю (anti-forgery token). Повний flow у ЛР 6.
+- Канали перебору облікових записів: `POST /api/auth/register` (409 розкриває, що ім'я або email зайняті; компроміс: користувач має знати, чому реєстрація не вдалася; пом'якшення: однаковий текст для імені та email, rate limit login, події). `POST /api/auth/login` каналу не дає: однаковий 401 і однаковий 429 для будь-якого імені.
+- Поглиблення (відмінний рівень): (1) втрата чинності старого сеансу після `UpdateSecurityStampAsync` (тест `SessionRevocationTests`); (2) готовність hasher до посилення параметрів: `SuccessRehashNeeded` і перезапис hash під час `CheckPasswordAsync` (тест `PasswordHasherUpgradeTests`); (3) threat analysis login flow у звіті .docx; (4) знайдений і усунутий дефект: `displayName` зі 121 символу давав 500 (помилка БД), тепер 400 з ключем `displayName` і без створеного акаунта.
+
+## Докази
+
+Усі значення нижче отримано 13.10.2026 на локальному стенді після `--reset-database`.
+
+| ID | Рівень | Передумова/дія | Очікувано | Фактично | Безпечний доказ |
+|---|---|---|---|---|---|
+| T-01 | достатній | register valid DTO | safe 201 | 201, `Location: /api/me`, тіло `id, userName, displayName` | тест `T01_Register_ValidRequest_Returns201SafeDtoAndUserCanLogin`; curl |
+| T-02 | достатній | повтор тієї самої реєстрації | safe rejection | 409 problem+json, без пароля у тілі | тест `T02_Register_Duplicate_Returns409Consistently`; curl |
+| T-03 | достатній | `\d identity_users` | password не відкрито | стовпець `PasswordHash text`, стовпця з відкритим паролем немає; login новоствореного користувача проходить через Identity verifier | опис схеми без даних |
+| A-01 | достатній | anonymous GET /api/me і POST /api/incidents | 401, no redirect | 401 problem+json, без `Location`, без `WWW-Authenticate` | тести `A01_*` |
+| A-02 | достатній | login alice → GET /api/me | principal user | 200, `id` Alice, `userName alice`, `roles [Reporter]`; без email, hash, stamp, token | тест `A02_LoginThenMe_ReturnsVerifiedPrincipalWithSafeFields` |
+| A-05 | достатній | Bob створює запис із forged owner Alice | новий owner = Bob | 201; у БД `OwnerUserId` = Bob; details `ownerDisplayName` «Боб Мельник» | тест `A05_CreateWithForgedOwner_KeepsPrincipalOwner`; curl |
+| S-01 | достатній | review response/log/diff | без витоків | у відповідях register, me, login немає password, hash, stamp, cookie, token; журнал подій без credentials; diff без секретів | чекліст, `grep` журналу |
+| A-03 | добрий | cookie Alice + `X-Demo-UserId` Bob | principal не змінюється | 200 і профіль Alice | тест `A03_MeWithForgedUserHeader_KeepsCookiePrincipal` |
+| A-04 | добрий | create без owner у DTO | owner = principal | 201; у БД owner Bob | тест `A04_AuthenticatedCreateWithoutOwner_SetsOwnerFromPrincipal` |
+| A-06 | добрий | logout, повторний /api/me | 401 | logout 204 із Set-Cookie «порожнє значення, expires 1970»; далі 401 | тест `A06_Logout_ThenProtectedRequest_Returns401` |
+| A-07 | добрий | unknown user / wrong password | однаковий результат | обидва 401 problem+json, однакові type/title/status | тест `A07_UnknownUserAndWrongPassword_SameExternalResult` |
+| Browser flow | добрий | 5 спостережень етапу 4 | state/profile/create/logout | до входу «не ввійшли», профілю немає; після login Alice «сеанс активний» і поля Alice; create без owner дає 201; після logout профіль прибрано і /api/me дає 401; localStorage/sessionStorage порожні, Console без credentials | скріншоти, `browser_observations.json` |
+| Duplicate | добрий | ім'я, email, повтор | послідовний 409 | три однакові 409 з тим самим title/detail | тест `T02_Register_Duplicate_Returns409Consistently` |
+| Cookie flags | добрий | login через HTTPS base address | фіксований профіль | `httponly, secure, samesite=lax, path=/`, без expires; через HTTP без `secure` | тести `CookieProfileTests` |
+| Rate limit і події | добрий | 6 невдалих спроб probe | 429, відновлення | спроби 1–5: 401; 6: 429 `Retry-After: 60`; інше ім'я з того самого IP: 401; у тесті з вікном 2 с після паузи знову 401; події без credentials | тести `LoginRateLimitTests`; curl; витяг журналу |
+| Поглиблення 1 | відмінний | security stamp оновлено | стара cookie недійсна | до події 200, після `UpdateSecurityStampAsync` 401, новий login 200 | тест `SessionRevocationTests` |
+| Поглиблення 2 | відмінний | hasher з 210 000 ітерацій | rehash | `SuccessRehashNeeded`; після `CheckPasswordAsync` збережений hash змінився; старий host далі приймає пароль | тест `PasswordHasherUpgradeTests` |
+| Поглиблення 3 | відмінний | threat analysis login flow | активи, entry points, межі, загроза, контрзахід, residual risk | у звіті .docx | розділ «Аналіз загроз» |
+| Поглиблення 4 | відмінний | displayName 121 символ | 400, акаунт не створено | до: 500; після: 400 `errors.displayName`, `FindByNameAsync` = null | тест `Register_DisplayNameOverLimit_Returns400AndCreatesNothing`; curl |
+
+Маршрут довіри: `POST /api/auth/login` → `SignInManager.PasswordSignInAsync` (стандартний hasher звіряє пароль із `PasswordHash`) → `Set-Cookie .AspNetCore.Identity.Application` (HttpOnly, SameSite=Lax, Secure за HTTPS) → браузер додає cookie сам → `UseAuthentication()` розшифровує квиток і будує `HttpContext.User` → `UseAuthorization()` перевіряє `.RequireAuthorization()` → endpoint читає `ClaimTypes.NameIdentifier` → `Incident.OwnerUserId` = цей Guid.
+
+Пояснення: пароль перевіряється лише всередині Identity (`PasswordSignInAsync`, `CreateAsync`), hash нікуди не повертається, бо він є артефактом автентифікації; HttpOnly, Secure і SameSite задані в `AddLab03Identity` через `ConfigureApplicationCookie`; локальний HTTP не доводить Secure, бо політика `SameAsRequest` додає атрибут тільки для HTTPS-запиту; клієнтський UserId не входить до ланцюжка довіри, бо його може написати будь-хто, а cookie підписана і зашифрована серверними ключами.
+
+Обґрунтування partition key: лише IP блокує всіх за спільним NAT; лише ім'я дає змогу сторонньому заблокувати чужий вхід; пара IP+ім'я вимагає від атакуючого і різних адрес, і різних імен, а звичайний користувач за тим самим NAT не страждає від чужих невдач. Виключені поля події: пароль, cookie, hash, stamp, token, Authorization, тіло запиту, повне ім'я користувача (у поле імені під час невдалої спроби людина могла ввести пароль).
+
+## Декларація використання ШІ
+
+ШІ не використовувався. Журнал: не застосовується.
