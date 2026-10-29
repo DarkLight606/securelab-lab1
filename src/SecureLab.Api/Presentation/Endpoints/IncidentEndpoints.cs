@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using SecureLab.Api.Application.Incidents;
 using SecureLab.Api.Data.Entities;
 using SecureLab.Api.Presentation.Contracts;
@@ -37,6 +38,23 @@ public static class IncidentEndpoints
             .WithName("GetIncidentSeveritySummary")
             .Produces<IReadOnlyList<IncidentSeveritySummaryResponse>>()
             .ProducesValidationProblem();
+
+        group.MapPut("/{id:guid}", UpdateAsync)
+            .WithName("UpdateIncident")
+            .RequireAuthorization();
+
+        group.MapDelete("/{id:guid}", DeleteAsync)
+            .WithName("DeleteIncident")
+            .RequireAuthorization();
+
+        group.MapPost("/{id:guid}/triage", TriageAsync)
+            .WithName("TriageIncident")
+            .RequireAuthorization();
+
+        endpoints.MapGet("/api/incident-comments/{id:guid}", GetCommentAsync)
+            .WithTags("Incidents")
+            .WithName("GetIncidentComment")
+            .RequireAuthorization();
 
         return endpoints;
     }
@@ -99,4 +117,49 @@ public static class IncidentEndpoints
                 statusCode: StatusCodes.Status404NotFound)
             : Results.Ok(incident);
     }
+
+    private static async Task<IResult> UpdateAsync(
+        Guid id,
+        UpdateIncidentRequest request,
+        IncidentCommands commands,
+        CancellationToken cancellationToken)
+    {
+        var updated = await commands.UpdateAsync(id, request, cancellationToken);
+        return updated is null ? NotFound(id) : Results.Ok(updated);
+    }
+
+    private static async Task<IResult> DeleteAsync(
+        Guid id,
+        IncidentCommands commands,
+        CancellationToken cancellationToken) =>
+        await commands.DeleteAsync(id, cancellationToken) ? Results.NoContent() : NotFound(id);
+
+    private static async Task<IResult> TriageAsync(
+        Guid id,
+        TriageIncidentRequest? request,
+        HttpContext httpContext,
+        IncidentCommands commands,
+        CancellationToken cancellationToken)
+    {
+        var actorUserId = Guid.Parse(httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await commands.TriageAsync(id, actorUserId, request ?? new TriageIncidentRequest(null), cancellationToken);
+        return result is null ? NotFound(id) : Results.Ok(result);
+    }
+
+    private static async Task<IResult> GetCommentAsync(
+        Guid id,
+        IncidentCommands commands,
+        CancellationToken cancellationToken)
+    {
+        var comment = await commands.GetCommentAsync(id, cancellationToken);
+        return comment is null
+            ? Results.Problem(title: "Коментар не знайдено", statusCode: StatusCodes.Status404NotFound)
+            : Results.Ok(comment);
+    }
+
+    private static IResult NotFound(Guid id) =>
+        Results.Problem(
+            title: "Інцидент не знайдено",
+            detail: $"Інцидент '{id}' не існує.",
+            statusCode: StatusCodes.Status404NotFound);
 }

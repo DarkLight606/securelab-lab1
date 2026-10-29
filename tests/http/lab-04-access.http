@@ -1,0 +1,88 @@
+# ЛР 04: сценарій IDOR/BOLA для локального стенда. Пароль береться зі змінної SeedUsers__Password.
+# REST Client сам тримає cookie після login; значення cookie у файлі немає.
+@host = http://localhost:5080
+@aliceId = 20000000-0000-0000-0000-000000000001
+@bobId = 20000000-0000-0000-0000-000000000002
+@aliceNewId = 20000000-0000-0000-0000-000000000005
+@bobCommentId = 30000000-0000-0000-0000-000000000002
+@internalCommentId = 30000000-0000-0000-0000-000000000003
+@unknownId = 20000000-0000-0000-0000-0000000000ff
+
+### A-01 anonymous details (before login)
+GET {{host}}/api/incidents/{{aliceId}}
+Accept: application/json
+
+### Alice login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{ "userName": "alice", "password": "{{$processEnv SeedUsers__Password}}" }
+
+### A-02 own details
+GET {{host}}/api/incidents/{{aliceId}}
+Accept: application/json
+
+### A-03 foreign details with the same Alice cookie (only id changed)
+GET {{host}}/api/incidents/{{bobId}}
+Accept: application/json
+
+### A-10 unknown id with the same Alice cookie
+GET {{host}}/api/incidents/{{unknownId}}
+Accept: application/json
+
+### A-05 list as Alice
+GET {{host}}/api/incidents
+Accept: application/json
+
+### A-11 severity summary and search as Alice
+GET {{host}}/api/incidents/severity-summary
+Accept: application/json
+
+###
+GET {{host}}/api/incidents/search?q=O'Brien
+Accept: application/json
+
+### A-04 foreign update: change one text field of Bob's incident
+PUT {{host}}/api/incidents/{{bobId}}
+Content-Type: application/json
+
+{ "title": "Змінено Alice", "description": "Система зафіксувала вхід до облікового запису з нового пристрою.", "severity": "High", "occurredAtUtc": "2026-08-02T14:10:00Z" }
+
+### A-04 foreign delete
+DELETE {{host}}/api/incidents/{{bobId}}
+
+### A-08a forged owner/role/status in a regular update of own incident
+PUT {{host}}/api/incidents/{{aliceNewId}}
+Content-Type: application/json
+
+{ "title": "Перевірка USB навчальної мережі", "description": "Навчальний запис для перевірки пошуку без реальних персональних даних.", "severity": "Low", "occurredAtUtc": "2026-08-03T09:00:00Z", "status": "Closed", "ownerUserId": "10000000-0000-0000-0000-000000000002", "role": "Administrator" }
+
+### A-06 Reporter tries privileged triage of own New incident
+POST {{host}}/api/incidents/{{aliceNewId}}/triage
+Content-Type: application/json
+
+{ "note": "Спроба Reporter" }
+
+### A-12 child resource: Morgan's comment on Bob's incident and the internal comment
+GET {{host}}/api/incident-comments/{{bobCommentId}}
+Accept: application/json
+
+###
+GET {{host}}/api/incident-comments/{{internalCommentId}}
+Accept: application/json
+
+### Morgan login (Analyst)
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{ "userName": "morgan", "password": "{{$processEnv SeedUsers__Password}}" }
+
+### A-03R permitted Analyst read of Alice's incident
+GET {{host}}/api/incidents/{{aliceId}}
+Accept: application/json
+
+### A-07 permitted triage New -> Triaged
+POST {{host}}/api/incidents/{{aliceNewId}}/triage
+Content-Type: application/json
+
+{ "note": "Первинну оцінку виконано" }
