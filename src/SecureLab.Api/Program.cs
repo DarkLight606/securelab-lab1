@@ -1,6 +1,8 @@
 using SecureLab.Api.Scaffolding;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 using Scalar.AspNetCore;
+using SecureLab.Api.Application.Authorization;
 using SecureLab.Api.Application.Auth;
 using SecureLab.Api.Application.Incidents;
 using SecureLab.Api.Data;
@@ -22,6 +24,8 @@ builder.Services.AddDbContext<SecureLabDbContext>(options =>
     options.UseNpgsql(connectionString));
 builder.Services.AddScoped<IncidentQueries>();
 builder.Services.AddScoped<IncidentCommands>();
+// ЛР 04: resource-based рішення для окремого інциденту.
+builder.Services.AddSingleton<IAuthorizationHandler, IncidentAuthorizationHandler>();
 
 builder.AddLab03Identity();
 

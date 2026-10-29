@@ -19,4 +19,12 @@ public static class CookieClient
         }
         return client;
     }
+
+    // ЛР 04: вхід навчальним seed-користувачем; пароль лише зі змінної середовища поза Git.
+    public static Task<HttpClient> LoginAsSeedUserAsync(this SecureLabApiFactory factory, string userName) =>
+        factory.LoginAsync(userName, SeedPassword);
+
+    public static string SeedPassword =>
+        Environment.GetEnvironmentVariable("SeedUsers__Password")
+        ?? throw new InvalidOperationException("Set local SeedUsers__Password outside Git.");
 }

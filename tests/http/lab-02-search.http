@@ -1,4 +1,10 @@
 @baseUrl = http://localhost:5080
+### ЛР 04: пошук вимагає входу і повертає лише дозволену множину. Login як Morgan (Analyst).
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{ "userName": "morgan", "password": "{{$processEnv SeedUsers__Password}}" }
+
 ### Звичайний пошук
 GET {{baseUrl}}/api/incidents/search?q=навчальн
 ### Легітимний апостроф

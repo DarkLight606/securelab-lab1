@@ -21,8 +21,10 @@ public static class IncidentEndpoints
 
     public static IEndpointRouteBuilder MapIncidentEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        // ЛР 04: уся група вимагає автентифікації; анонімний запит одержує 401 ще до коду endpoint.
         var group = endpoints.MapGroup("/api/incidents")
-            .WithTags("Incidents");
+            .WithTags("Incidents")
+            .RequireAuthorization();
 
         group.MapGet("/", GetListAsync)
             .WithName("GetIncidents")
@@ -40,16 +42,13 @@ public static class IncidentEndpoints
             .ProducesValidationProblem();
 
         group.MapPut("/{id:guid}", UpdateAsync)
-            .WithName("UpdateIncident")
-            .RequireAuthorization();
+            .WithName("UpdateIncident");
 
         group.MapDelete("/{id:guid}", DeleteAsync)
-            .WithName("DeleteIncident")
-            .RequireAuthorization();
+            .WithName("DeleteIncident");
 
         group.MapPost("/{id:guid}/triage", TriageAsync)
-            .WithName("TriageIncident")
-            .RequireAuthorization();
+            .WithName("TriageIncident");
 
         endpoints.MapGet("/api/incident-comments/{id:guid}", GetCommentAsync)
             .WithTags("Incidents")
@@ -61,6 +60,7 @@ public static class IncidentEndpoints
 
     private static async Task<IResult> GetListAsync(
         string? status,
+        ClaimsPrincipal user,
         IncidentQueries queries,
         CancellationToken cancellationToken)
     {
@@ -79,11 +79,12 @@ public static class IncidentEndpoints
             parsedStatus = candidate;
         }
 
-        return Results.Ok(await queries.GetListAsync(parsedStatus, cancellationToken));
+        return Results.Ok(await queries.GetListAsync(parsedStatus, user, cancellationToken));
     }
 
     private static async Task<IResult> GetSeveritySummaryAsync(
         string? status,
+        ClaimsPrincipal user,
         IncidentQueries queries,
         CancellationToken cancellationToken)
     {
@@ -101,65 +102,84 @@ public static class IncidentEndpoints
             allowedStatus = candidate;
         }
 
-        return Results.Ok(await queries.GetSeveritySummaryAsync(allowedStatus, cancellationToken));
+        return Results.Ok(await queries.GetSeveritySummaryAsync(allowedStatus, user, cancellationToken));
     }
 
     private static async Task<IResult> GetDetailsAsync(
         Guid id,
+        ClaimsPrincipal user,
         IncidentQueries queries,
         CancellationToken cancellationToken)
     {
-        var incident = await queries.GetDetailsAsync(id, cancellationToken);
-        return incident is null
-            ? Results.Problem(
-                title: "Інцидент не знайдено",
-                detail: $"Інцидент '{id}' не існує.",
-                statusCode: StatusCodes.Status404NotFound)
-            : Results.Ok(incident);
+        var incident = await queries.GetDetailsAsync(id, user, cancellationToken);
+        return incident is null ? IncidentNotFound() : Results.Ok(incident);
     }
 
     private static async Task<IResult> UpdateAsync(
         Guid id,
         UpdateIncidentRequest request,
+        ClaimsPrincipal user,
         IncidentCommands commands,
         CancellationToken cancellationToken)
     {
-        var updated = await commands.UpdateAsync(id, request, cancellationToken);
-        return updated is null ? NotFound(id) : Results.Ok(updated);
+        var result = await commands.UpdateAsync(id, request, user, cancellationToken);
+        return ToResult(result.Outcome, result.Value, result.Errors);
     }
 
     private static async Task<IResult> DeleteAsync(
         Guid id,
+        ClaimsPrincipal user,
         IncidentCommands commands,
-        CancellationToken cancellationToken) =>
-        await commands.DeleteAsync(id, cancellationToken) ? Results.NoContent() : NotFound(id);
+        CancellationToken cancellationToken)
+    {
+        var outcome = await commands.DeleteAsync(id, user, cancellationToken);
+        return outcome == CommandOutcome.Done ? Results.NoContent() : ToResult<object>(outcome, null, null);
+    }
 
     private static async Task<IResult> TriageAsync(
         Guid id,
         TriageIncidentRequest? request,
-        HttpContext httpContext,
+        ClaimsPrincipal user,
         IncidentCommands commands,
         CancellationToken cancellationToken)
     {
-        var actorUserId = Guid.Parse(httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var result = await commands.TriageAsync(id, actorUserId, request ?? new TriageIncidentRequest(null), cancellationToken);
-        return result is null ? NotFound(id) : Results.Ok(result);
+        var result = await commands.TriageAsync(id, request ?? new TriageIncidentRequest(null), user, cancellationToken);
+        return ToResult(result.Outcome, result.Value, result.Errors);
     }
 
     private static async Task<IResult> GetCommentAsync(
         Guid id,
-        IncidentCommands commands,
+        ClaimsPrincipal user,
+        IncidentQueries queries,
         CancellationToken cancellationToken)
     {
-        var comment = await commands.GetCommentAsync(id, cancellationToken);
+        var comment = await queries.GetCommentAsync(id, user, cancellationToken);
         return comment is null
             ? Results.Problem(title: "Коментар не знайдено", statusCode: StatusCodes.Status404NotFound)
             : Results.Ok(comment);
     }
 
-    private static IResult NotFound(Guid id) =>
+    private static IResult ToResult<T>(CommandOutcome outcome, T? value, Dictionary<string, string[]>? errors) =>
+        outcome switch
+        {
+            CommandOutcome.Done => Results.Ok(value),
+            CommandOutcome.NotFound => IncidentNotFound(),
+            CommandOutcome.Forbidden => Results.Problem(
+                title: "Дію заборонено",
+                detail: "Ваша роль не дозволяє цю дію для цього інциденту.",
+                statusCode: StatusCodes.Status403Forbidden),
+            CommandOutcome.Conflict => Results.Problem(
+                title: "Перехід стану неможливий",
+                detail: "Первинну оцінку можна виконати лише для інциденту в статусі New.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => Results.ValidationProblem(errors ?? [])
+        };
+
+    // ЛР 04, політика 404: одна відповідь для чужого й неіснуючого інциденту. У detail немає id,
+    // тож тіла двох відповідей відрізняються лише traceId (A-10).
+    private static IResult IncidentNotFound() =>
         Results.Problem(
             title: "Інцидент не знайдено",
-            detail: $"Інцидент '{id}' не існує.",
+            detail: "Інцидент не існує або недоступний.",
             statusCode: StatusCodes.Status404NotFound);
 }

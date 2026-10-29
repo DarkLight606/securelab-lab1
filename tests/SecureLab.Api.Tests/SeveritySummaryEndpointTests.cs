@@ -14,11 +14,20 @@ public sealed class SeveritySummaryEndpointTests(SecureLabApiFactory factory)
 {
     private const string SummaryUrl = "/api/incidents/severity-summary";
 
-    private readonly HttpClient _client = factory.CreateClient();
+    // ЛР 04: група /api/incidents вимагає входу. Підсумок читає Morgan (Analyst): за матрицею ЛР 04 він бачить усі інциденти, тому очікувані числа ЛР 1–2 не змінюються.
+    private HttpClient _client = null!;
 
-    public Task InitializeAsync() => factory.ResetDatabaseAsync();
+    public async Task InitializeAsync()
+    {
+        await factory.ResetDatabaseAsync();
+        _client = await factory.LoginAsSeedUserAsync("morgan");
+    }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync()
+    {
+        _client.Dispose();
+        return Task.CompletedTask;
+    }
 
     [Fact]
     public async Task GetSummary_ReturnsExistingGroupsInCriticalityOrder()

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
+using SecureLab.Api.Application.Authorization;
 using SecureLab.Api.Data;
 using SecureLab.Api.Data.Entities;
 using SecureLab.Api.Presentation.Contracts;
@@ -22,7 +23,7 @@ public static class Lab02Endpoints
     {
         // БЕЗПЕЧНИЙ ПОШУК (стан "після"). Значення q передається параметром через EF.Functions.ILike,
         // а структуру (напрямок сортування) вибирає серверний allowlist. Ім'я колонки з клієнта не береться.
-        app.MapGet("/api/incidents/search", async (string? q, string? sortBy, SecureLabDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/incidents/search", async (string? q, string? sortBy, ClaimsPrincipal user, SecureLabDbContext db, CancellationToken ct) =>
         {
             // sortBy обирає СТРУКТУРУ запиту, тому перевіряється за allowlist і не параметризується.
             var sort = string.IsNullOrEmpty(sortBy) ? "createdAtUtc" : sortBy;
@@ -34,7 +35,9 @@ public static class Lab02Endpoints
                 });
             }
 
-            var query = db.Incidents.AsNoTracking();
+            // ЛР 04 (A-11): пошук іде лише серед інцидентів, які користувач має право бачити,
+            // до сортування і Take(50).
+            var query = db.Incidents.AsNoTracking().VisibleTo(user);
 
             if (!string.IsNullOrEmpty(q))
             {
@@ -79,7 +82,7 @@ public static class Lab02Endpoints
                 .ToListAsync(ct);
 
             return Results.Ok(rows);
-        });
+        }).RequireAuthorization();
 
         // Контракт створення інциденту 2-A: серверна валідація формату, діапазону, взаємозалежних полів
         // і предметного правила ще до доступу до БД. Клієнт не може передати owner, status чи audit-часи.

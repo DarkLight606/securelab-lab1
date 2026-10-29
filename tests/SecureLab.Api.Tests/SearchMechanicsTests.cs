@@ -7,7 +7,7 @@ public sealed class SearchMechanicsTests(SecureLabApiFactory factory) : IClassFi
     [Fact]
     public async Task Search_ReturnsJson()
     {
-        using var client = factory.CreateClient();
+        using var client = await factory.LoginAsSeedUserAsync("alice");
         using var response = await client.GetAsync("/api/incidents/search?q=навчальн");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);

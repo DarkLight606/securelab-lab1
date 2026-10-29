@@ -1,6 +1,12 @@
 @host = http://localhost:5080
 @aliceIncidentId = 20000000-0000-0000-0000-000000000001
 
+### ЛР 04: група /api/incidents вимагає входу. Login як Morgan (Analyst бачить усі інциденти).
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{ "userName": "morgan", "password": "{{$processEnv SeedUsers__Password}}" }
+
 ### Health/readiness
 GET {{host}}/health
 Accept: application/json
