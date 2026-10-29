@@ -51,7 +51,7 @@ Administrator у 2-A не має окремих прав на інциденти
 Маршрут details відповідає навіть без cookie: крім IDOR, він ще не вимагає автентифікації.
 
 ## Виправлення та retest
-Vulnerable commit: `8c45d2d`. Fixed commit (тег `v0.4.0`) записано наступним commit «Record lab 4 hashes».
+Vulnerable commit: `8c45d2d`. Fixed commit (тег `v0.4.0`): `7c3fa22`.
 Ті самі запити після виправлення, `--reset-database` перед кожним прогоном:
 
 | Суб'єкт | Запит | До | Після |
@@ -184,7 +184,7 @@ dotnet run --project src/SecureLab.Api --launch-profile http
 їх переведено на login (Morgan для search і summary, бо Analyst за матрицею бачить усе), а `GetList_ReturnsSeededIncidents`
 замінено перевіркою A-05.
 
-Hashes: vulnerable `8c45d2d`; fixed і тег `v0.4.0` записано в наступному commit.
+Hashes: vulnerable `8c45d2d`, fixed `7c3fa22` = `v0.4.0`. Цей рядок додано окремим commit після тегу, тег не пересувався.
 
 ## Використання ШІ (довільна форма; журнал — за бажанням)
 Не використовував ШІ.
